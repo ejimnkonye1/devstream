@@ -1,15 +1,9 @@
 /**
  * useRecorder — MediaRecorder hook
  *
- * Flow:
- *  1. User clicks "Record" → getDisplayMedia() prompts the OS screen picker.
- *  2. User selects the recorder window (or any screen) in the picker.
- *  3. MediaRecorder collects chunks at 1-second intervals.
- *  4. User clicks "Stop" (or closes the stream via the browser toolbar).
- *  5. Blob is assembled and a download is triggered automatically.
- *
- * Format priority: video/mp4 → video/webm;codecs=vp9 → video/webm
- * Chrome 130+ supports video/mp4 natively in MediaRecorder.
+ * Returns: { isRecording, elapsed, elapsedLabel, status, error, startRecording, stopRecording }
+ *   elapsed      — integer seconds since recording started
+ *   elapsedLabel — formatted "MM:SS" string for display
  */
 
 import { useState, useRef, useCallback } from 'react'
@@ -25,19 +19,34 @@ function selectMimeType() {
   for (const mime of candidates) {
     if (MediaRecorder.isTypeSupported(mime)) return mime
   }
-  return '' // Let the browser decide
+  return ''
+}
+
+function formatTime(seconds) {
+  const m = Math.floor(seconds / 60).toString().padStart(2, '0')
+  const s = (seconds % 60).toString().padStart(2, '0')
+  return `${m}:${s}`
 }
 
 export default function useRecorder() {
-  const [isRecording, setIsRecording] = useState(false)
-  const [status, setStatus] = useState('')       // human-readable status string
-  const [error, setError] = useState(null)
+  const [isRecording, setIsRecording]   = useState(false)
+  const [elapsed, setElapsed]           = useState(0)
+  const [status, setStatus]             = useState('')
+  const [error, setError]               = useState(null)
 
   const mediaRecorderRef = useRef(null)
-  const chunksRef = useRef([])
-  const streamRef = useRef(null)
+  const chunksRef        = useRef([])
+  const streamRef        = useRef(null)
+  const timerRef         = useRef(null)
 
-  // ── Start ──────────────────────────────────────────────────────────────────
+  function clearTimer() {
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
+  }
+
+  // ── Start ────────────────────────────────────────────────────────────────
 
   const startRecording = useCallback(async () => {
     setError(null)
@@ -47,20 +56,17 @@ export default function useRecorder() {
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
         video: {
-          // Prefer the current tab/window for a smoother UX hint.
           displaySurface: 'window',
           width:     { ideal: 1920, max: 3840 },
           height:    { ideal: 1080, max: 2160 },
           frameRate: { ideal: 30,   max: 60   },
         },
         audio: false,
-        // Chrome-only: surface selection hint shown in the picker.
         selfBrowserSurface: 'include',
         preferCurrentTab: false,
       })
     } catch (err) {
       if (err.name === 'NotAllowedError') {
-        // User dismissed the picker — treat as a no-op.
         setStatus('')
       } else {
         setError(`Could not start capture: ${err.message}`)
@@ -73,7 +79,7 @@ export default function useRecorder() {
     chunksRef.current = []
 
     const mimeType = selectMimeType()
-    const options = mimeType ? { mimeType } : {}
+    const options  = mimeType ? { mimeType } : {}
 
     let recorder
     try {
@@ -87,27 +93,24 @@ export default function useRecorder() {
     mediaRecorderRef.current = recorder
 
     recorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) {
-        chunksRef.current.push(e.data)
-      }
+      if (e.data && e.data.size > 0) chunksRef.current.push(e.data)
     }
 
     recorder.onstop = () => {
+      clearTimer()
       const effectiveMime = recorder.mimeType || mimeType || 'video/webm'
       const blob = new Blob(chunksRef.current, { type: effectiveMime })
-      const ext = effectiveMime.includes('mp4') ? 'mp4' : 'webm'
+      const ext  = effectiveMime.includes('mp4') ? 'mp4' : 'webm'
 
-      // Trigger browser download
-      const url = URL.createObjectURL(blob)
+      const url    = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
-      anchor.href = url
+      anchor.href     = url
       anchor.download = `devstream-${Date.now()}.${ext}`
       anchor.click()
-
-      // Clean up object URL after a short delay
       setTimeout(() => URL.revokeObjectURL(url), 10_000)
 
       setIsRecording(false)
+      setElapsed(0)
       setStatus('')
     }
 
@@ -116,27 +119,33 @@ export default function useRecorder() {
       stopRecording()
     }
 
-    // Handle the user clicking "Stop sharing" in the browser toolbar.
+    // User clicked "Stop sharing" in the browser toolbar.
     stream.getVideoTracks()[0].addEventListener('ended', () => {
       if (recorder.state !== 'inactive') recorder.stop()
+      clearTimer()
       setIsRecording(false)
+      setElapsed(0)
       setStatus('')
     })
 
-    // Collect data every second so onstop has chunks available.
     recorder.start(1000)
+
+    // Start elapsed timer.
+    setElapsed(0)
+    timerRef.current = setInterval(() => {
+      setElapsed((s) => s + 1)
+    }, 1000)
 
     setIsRecording(true)
     setStatus('Recording…')
   }, [])
 
-  // ── Stop ───────────────────────────────────────────────────────────────────
+  // ── Stop ─────────────────────────────────────────────────────────────────
 
   const stopRecording = useCallback(() => {
+    clearTimer()
     const recorder = mediaRecorderRef.current
-    if (recorder && recorder.state !== 'inactive') {
-      recorder.stop()
-    }
+    if (recorder && recorder.state !== 'inactive') recorder.stop()
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop())
       streamRef.current = null
@@ -144,5 +153,13 @@ export default function useRecorder() {
     setStatus('Saving file…')
   }, [])
 
-  return { isRecording, status, error, startRecording, stopRecording }
+  return {
+    isRecording,
+    elapsed,
+    elapsedLabel: formatTime(elapsed),
+    status,
+    error,
+    startRecording,
+    stopRecording,
+  }
 }

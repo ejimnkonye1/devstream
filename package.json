@@ -8,6 +8,7 @@
     "build": "npm run generate-icons && vite build",
     "build:ext": "vite build",
     "generate-icons": "node scripts/generate-icons.mjs",
+    "watch": "vite build --watch",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -26,7 +26,7 @@
 
 import { useEffect, useRef, useCallback } from 'react'
 
-export default function useScrollSync(desktopIframeRef, mobileIframeRef, onNavigate) {
+export default function useScrollSync(desktopIframeRef, mobileIframeRef, onNavigate, enabled = true) {
   // True while we are programmatically scrolling the opposite frame.
   const isSyncingRef = useRef(false)
 
@@ -47,6 +47,8 @@ export default function useScrollSync(desktopIframeRef, mobileIframeRef, onNavig
   }, [])
 
   useEffect(() => {
+    if (!enabled) return
+
     const handleMessage = (event) => {
       if (!event.data || typeof event.data !== 'object') return
 
@@ -95,5 +97,5 @@ export default function useScrollSync(desktopIframeRef, mobileIframeRef, onNavig
 
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [desktopIframeRef, mobileIframeRef, syncScroll, onNavigate])
+  }, [desktopIframeRef, mobileIframeRef, syncScroll, onNavigate, enabled])
 }

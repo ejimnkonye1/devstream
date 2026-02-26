@@ -69,6 +69,17 @@
         break
       }
 
+      // ── Ping / Pong — used by the recorder to detect blocked iframes ──
+      case 'DS_PING': {
+        // Echo the token back so the recorder can match this specific ping.
+        window.parent.postMessage({
+          type: 'DS_PONG',
+          token: event.data.token,
+          url: location.href,
+        }, '*')
+        break
+      }
+
       default:
         // Ignore unrecognised messages.
         break
