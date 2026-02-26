@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Prevent any body scroll — the recorder manages its own layout */
+html, body {
+  overflow: hidden;
+  height: 100%;
+}
+
+/* Custom scrollbar for the mobile frame column */
+.mobile-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.mobile-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.mobile-scroll::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 2px;
+}
+
+/* Pulsing red dot for recording indicator */
+@keyframes pulse-red {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+.recording-dot {
+  animation: pulse-red 1.2s ease-in-out infinite;
+}

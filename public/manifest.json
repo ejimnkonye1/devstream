@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "DevStream",
+  "version": "1.0.0",
+  "description": "Record dual-view (Desktop + Mobile) website sessions as MP4.",
+
+  "icons": {
+    "16":  "icons/icon16.png",
+    "48":  "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+
+  "action": {
+    "default_icon": {
+      "16":  "icons/icon16.png",
+      "48":  "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "Open DevStream Recorder"
+  },
+
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "all_frames": true,
+      "run_at": "document_end"
+    }
+  ],
+
+  "permissions": [
+    "tabs",
+    "windows"
+  ],
+
+  "web_accessible_resources": [
+    {
+      "resources": ["recorder.html", "assets/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}
