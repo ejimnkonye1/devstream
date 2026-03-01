@@ -13,5 +13,20 @@ html, body {
 }
 
 #root {
-  height: 100%;
+  min-height: 100%;
 }
+
+/* Landing page — hero radial glow */
+.hero-glow {
+  background: radial-gradient(ellipse 80% 50% at 50% -5%, rgba(59,130,246,0.13) 0%, transparent 65%);
+}
+
+/* Recording dot pulse — used in landing mockup and recorder */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.25; }
+}
+.rec-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
+
+/* Smooth scroll */
+html { scroll-behavior: smooth; }
