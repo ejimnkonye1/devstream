@@ -2,12 +2,22 @@ import { useState } from 'react'
 import Navbar from '../components/Navbar.jsx'
 import VideoCard from '../components/VideoCard.jsx'
 import DeleteDialog from '../components/DeleteDialog.jsx'
+import AnalyticsSummary from '../components/AnalyticsSummary.jsx'
+import FilterBar from '../components/FilterBar.jsx'
 import useRecordings from '../hooks/useRecordings.js'
 
 export default function Dashboard() {
-  const { recordings, loading, error, remove } = useRecordings()
+  const {
+    recordings, rawRecordings,
+    loading, error, remove,
+    search, setSearch,
+    deviceFilter, setDeviceFilter,
+    sortOrder, setSortOrder,
+    uniqueDevices,
+  } = useRecordings()
+
   const [pendingDelete, setPendingDelete] = useState(null)
-  const [deleting, setDeleting] = useState(false)
+  const [deleting, setDeleting]           = useState(false)
 
   async function handleConfirmDelete() {
     if (!pendingDelete || deleting) return
@@ -27,11 +37,6 @@ export default function Dashboard() {
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
             <h1 className="text-white font-bold text-xl">My Recordings</h1>
-            {!loading && !error && (
-              <span className="text-gray-500 text-sm">
-                {recordings.length} recording{recordings.length !== 1 ? 's' : ''}
-              </span>
-            )}
           </div>
 
           {/* Loading */}
@@ -48,29 +53,55 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Empty state */}
-          {!loading && !error && recordings.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-24 text-gray-600">
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="mb-4">
-                <polygon points="23 7 16 12 23 17 23 7"/>
-                <rect x="1" y="5" width="15" height="14" rx="2"/>
-              </svg>
-              <p className="text-sm">No recordings yet.</p>
-              <p className="text-xs mt-1">Use the extension to record a session and upload it to the cloud.</p>
-            </div>
-          )}
+          {!loading && !error && (
+            <>
+              {/* Analytics summary — always uses unfiltered totals */}
+              {rawRecordings.length > 0 && (
+                <AnalyticsSummary recordings={rawRecordings} />
+              )}
 
-          {/* Grid */}
-          {!loading && !error && recordings.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {recordings.map((rec) => (
-                <VideoCard
-                  key={rec.id}
-                  recording={rec}
-                  onDelete={setPendingDelete}
-                />
-              ))}
-            </div>
+              {/* Filter / search / sort bar */}
+              <FilterBar
+                search={search}             setSearch={setSearch}
+                deviceFilter={deviceFilter} setDeviceFilter={setDeviceFilter}
+                uniqueDevices={uniqueDevices}
+                sortOrder={sortOrder}       setSortOrder={setSortOrder}
+                totalShown={recordings.length}
+                totalAll={rawRecordings.length}
+              />
+
+              {/* Empty state */}
+              {rawRecordings.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-24 text-gray-600">
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="mb-4">
+                    <polygon points="23 7 16 12 23 17 23 7"/>
+                    <rect x="1" y="5" width="15" height="14" rx="2"/>
+                  </svg>
+                  <p className="text-sm">No recordings yet.</p>
+                  <p className="text-xs mt-1">Use the extension to record a session and upload it to the cloud.</p>
+                </div>
+              )}
+
+              {/* No results after filtering */}
+              {rawRecordings.length > 0 && recordings.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-16 text-gray-600">
+                  <p className="text-sm">No recordings match your filters.</p>
+                </div>
+              )}
+
+              {/* Grid */}
+              {recordings.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {recordings.map((rec) => (
+                    <VideoCard
+                      key={rec.id}
+                      recording={rec}
+                      onDelete={setPendingDelete}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
           )}
 
         </div>
@@ -80,6 +111,7 @@ export default function Dashboard() {
         <DeleteDialog
           onConfirm={handleConfirmDelete}
           onCancel={() => setPendingDelete(null)}
+          deleting={deleting}
         />
       )}
     </div>

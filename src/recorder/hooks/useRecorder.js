@@ -1,9 +1,10 @@
 /**
  * useRecorder — MediaRecorder hook
  *
- * Phase 2 change: onstop no longer auto-downloads.
- * Instead it populates `pendingRecording` so the caller can show
- * the SaveDialog (download locally OR upload to cloud).
+ * Improvements over Phase 2:
+ *   • beforeunload listener cleans up streams if the window is closed mid-recording
+ *   • Ensures ALL tracks (not just video) are stopped in every exit path
+ *   • 30-minute warning via status update
  *
  * Returns:
  *   isRecording, elapsed, elapsedLabel, status, error
@@ -35,20 +36,28 @@ function formatTime(seconds) {
 }
 
 export default function useRecorder() {
-  const [isRecording, setIsRecording]       = useState(false)
-  const [elapsed, setElapsed]               = useState(0)
-  const [status, setStatus]                 = useState('')
-  const [error, setError]                   = useState(null)
+  const [isRecording, setIsRecording]           = useState(false)
+  const [elapsed, setElapsed]                   = useState(0)
+  const [status, setStatus]                     = useState('')
+  const [error, setError]                       = useState(null)
   const [pendingRecording, setPendingRecording] = useState(null)
 
   const mediaRecorderRef = useRef(null)
   const chunksRef        = useRef([])
   const streamRef        = useRef(null)
   const timerRef         = useRef(null)
-  const elapsedRef       = useRef(0)   // readable in onstop callback
+  const elapsedRef       = useRef(0)   // readable inside onstop callback
+  const beforeUnloadRef  = useRef(null)
 
   function clearTimer() {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+  }
+
+  function cleanupStream() {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop())
+      streamRef.current = null
+    }
   }
 
   // ── Start ────────────────────────────────────────────────────────────────
@@ -99,12 +108,17 @@ export default function useRecorder() {
 
     recorder.onstop = () => {
       clearTimer()
+      // Remove beforeunload guard — recording ended cleanly.
+      if (beforeUnloadRef.current) {
+        window.removeEventListener('beforeunload', beforeUnloadRef.current)
+        beforeUnloadRef.current = null
+      }
+
       const effectiveMime = recorder.mimeType || mimeType || 'video/webm'
       const blob = new Blob(chunksRef.current, { type: effectiveMime })
+      chunksRef.current = [] // free memory
 
-      // Hand off to SaveDialog — do NOT auto-download.
       setPendingRecording({ blob, mimeType: effectiveMime, duration: elapsedRef.current })
-
       setIsRecording(false)
       setElapsed(0)
       elapsedRef.current = 0
@@ -116,7 +130,9 @@ export default function useRecorder() {
       stopRecording()
     }
 
+    // User stopped sharing (clicked the browser's "Stop sharing" button).
     stream.getVideoTracks()[0].addEventListener('ended', () => {
+      cleanupStream()
       if (recorder.state !== 'inactive') recorder.stop()
       clearTimer()
       setIsRecording(false)
@@ -127,16 +143,32 @@ export default function useRecorder() {
 
     recorder.start(1000)
 
+    // ── beforeunload guard: stop streams if window is closed mid-recording
+    const beforeUnloadHandler = () => {
+      cleanupStream()
+      if (mediaRecorderRef.current?.state !== 'inactive') {
+        mediaRecorderRef.current.stop()
+      }
+    }
+    beforeUnloadRef.current = beforeUnloadHandler
+    window.addEventListener('beforeunload', beforeUnloadHandler)
+
+    // ── Timer
     setElapsed(0)
     elapsedRef.current = 0
     timerRef.current = setInterval(() => {
       elapsedRef.current += 1
       setElapsed((s) => s + 1)
+
+      // 30-minute warning
+      if (elapsedRef.current === 1800) {
+        setStatus('Recording — 30 min limit approaching')
+      }
     }, 1000)
 
     setIsRecording(true)
     setStatus('Recording…')
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Stop ─────────────────────────────────────────────────────────────────
 
@@ -144,10 +176,7 @@ export default function useRecorder() {
     clearTimer()
     const recorder = mediaRecorderRef.current
     if (recorder && recorder.state !== 'inactive') recorder.stop()
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop())
-      streamRef.current = null
-    }
+    cleanupStream()
     setStatus('Processing…')
   }, [])
 

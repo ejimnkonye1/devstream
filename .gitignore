@@ -1,8 +1,13 @@
 # Dependencies
 node_modules/
+dashboard/node_modules/
 
-# Build output (load dist/ as unpacked extension — don't commit it)
+# Build output
 dist/
+dashboard/dist/
+
+# Release zip (created locally, attached to GitHub releases)
+*.zip
 
 # Vite cache
 .vite/
@@ -11,9 +16,10 @@ dist/
 .DS_Store
 Thumbs.db
 
-# Editor
+# Editor / tools
 .vscode/
 .idea/
+.claude/
 *.suo
 *.ntvs*
 *.njsproj

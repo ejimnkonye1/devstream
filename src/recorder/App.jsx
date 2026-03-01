@@ -19,6 +19,8 @@ export default function App() {
   const [deviceId, setDeviceId]     = useState(DEFAULT_DEVICE_ID)
   const [landscape, setLandscape]   = useState(false)
   const [customWidth, setCustomWidth] = useState(null)
+  const [mirrorMode, setMirrorMode] = useState(true)
+  const [heightMode, setHeightMode] = useState('preset')
 
   const {
     isRecording, elapsed, elapsedLabel, status, error,
@@ -47,6 +49,8 @@ export default function App() {
 
   const device = findDevice(deviceId)
 
+  const isSynced = mirrorMode && viewMode === 'both'
+
   // Metadata attached to every cloud upload
   const recordingMeta = {
     recordedUrl:   activeUrl,
@@ -54,6 +58,7 @@ export default function App() {
     viewMode,
     viewportWidth: customWidth ?? device.viewportWidth,
     landscape,
+    mirrorMode,
   }
 
   return (
@@ -65,6 +70,8 @@ export default function App() {
         landscape={landscape} onLandscapeToggle={handleLandscapeToggle}
         customWidth={customWidth} onCustomWidthChange={setCustomWidth}
         device={device}
+        mirrorMode={mirrorMode} onMirrorModeChange={setMirrorMode}
+        heightMode={heightMode} onHeightModeChange={setHeightMode}
         isRecording={isRecording} elapsed={elapsed} elapsedLabel={elapsedLabel}
         onStartRecording={startRecording} onStopRecording={stopRecording}
         recordingStatus={status} recordingError={error}
@@ -72,8 +79,13 @@ export default function App() {
 
       {isRecording && (
         <div className="flex items-center justify-center gap-2 py-1 bg-red-950 border-b border-red-900 text-xs text-red-300 flex-shrink-0">
-          <span className="w-1.5 h-1.5 rounded-full bg-red-500 recording-dot" aria-hidden="true" />
+          <span className="w-1.5 h-1.5 rounded-full bg-red-500 recording-dot" aria-hidden="true"/>
           Recording active — select this window in the screen picker if you haven't already.
+          {isSynced && (
+            <span className="ml-2 px-1.5 py-0.5 bg-green-900/50 text-green-400 rounded text-[9px] font-semibold tracking-wide leading-none">
+              SYNCED
+            </span>
+          )}
         </div>
       )}
 
@@ -82,6 +94,8 @@ export default function App() {
           activeUrl={activeUrl} viewMode={viewMode}
           device={device} landscape={landscape} customWidth={customWidth}
           onNavigate={handleNavigate}
+          mirrorMode={mirrorMode}
+          heightMode={heightMode}
         />
       </main>
 

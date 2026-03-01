@@ -1,112 +1,141 @@
 /**
  * content.js — DevStream Content Script
  *
- * Injected into ALL frames (including cross-origin iframes loaded in the
- * recorder's dual view). Provides the bridge between iframe pages and the
- * recorder window for:
+ * Injected into ALL frames. Bridges iframe pages and the recorder window for:
  *
- *  1. Scroll synchronisation  — reports scroll position to the parent recorder
- *     and applies scroll commands received from it.
+ *  1. Scroll synchronisation  — reports scroll percentage to the recorder
+ *     and applies percentage-based scroll commands received from it.
  *
- *  2. Navigation sync         — reports URL changes so the recorder can mirror
- *     navigation to the opposite viewport.
+ *  2. Navigation sync         — reports URL changes for mirror navigation.
  *
- * Security note: We only communicate with our direct parent window using
- * structured-clone-safe plain objects. We validate the `type` field on every
- * incoming message and ignore anything we don't recognise.
+ *  3. Anchor click sync       — intercepts anchor clicks in capture phase
+ *     before navigation, posting DS_ANCHOR_CLICK immediately (faster than
+ *     the 1500ms polling fallback).
+ *
+ *  4. Iframe liveness         — DS_PING / DS_PONG token matching.
  */
 
 ;(function devstreamContentScript() {
-  // Avoid double-injection (can happen with dynamic iframes).
   if (window.__devstreamInjected) return
   window.__devstreamInjected = true
 
-  // ── Scroll reporting ──────────────────────────────────────────────────────
+  // ── Scroll reporting (percentage-based) ───────────────────────────────────
 
   let scrollReportTimer = null
 
   window.addEventListener(
     'scroll',
     () => {
-      // Throttle to one message per animation frame.
-      if (scrollReportTimer) return
-      scrollReportTimer = requestAnimationFrame(() => {
+      // Suppress re-reporting a scroll that WE applied from DS_SCROLL_SET.
+      if (applyingExternalScroll) return
+
+      // Debounce: 50 ms quiet period before sending.
+      if (scrollReportTimer) clearTimeout(scrollReportTimer)
+      scrollReportTimer = setTimeout(() => {
         scrollReportTimer = null
+
+        const maxY = document.documentElement.scrollHeight - document.documentElement.clientHeight
+        const maxX = document.documentElement.scrollWidth  - document.documentElement.clientWidth
+
         window.parent.postMessage(
           {
             type: 'DS_SCROLL_REPORT',
-            scrollTop: window.scrollY,
+            // Percentage fields (0–1) — primary, used by upgraded recorder
+            scrollTopPct:  maxY > 0 ? window.scrollY / maxY : 0,
+            scrollLeftPct: maxX > 0 ? window.scrollX / maxX : 0,
+            // Raw pixel fields — kept for backwards compatibility
+            scrollTop:  window.scrollY,
             scrollLeft: window.scrollX,
           },
           '*'
         )
-      })
+      }, 50)
     },
     { passive: true }
   )
 
-  // ── Scroll command handler ────────────────────────────────────────────────
+  // ── Message handler ────────────────────────────────────────────────────────
 
-  // Flag to suppress re-reporting a scroll triggered by DS_SCROLL_SET.
   let applyingExternalScroll = false
 
   window.addEventListener('message', (event) => {
-    // Only accept plain-object messages.
     if (!event.data || typeof event.data !== 'object') return
 
     switch (event.data.type) {
+
+      // ── Apply scroll from recorder ─────────────────────────────────────
       case 'DS_SCROLL_SET': {
         applyingExternalScroll = true
-        window.scrollTo({
-          top: event.data.scrollTop,
-          left: event.data.scrollLeft,
-          behavior: 'instant',
-        })
-        // Release the suppression flag after the next scroll event fires.
+
+        const maxY = document.documentElement.scrollHeight - document.documentElement.clientHeight
+        const maxX = document.documentElement.scrollWidth  - document.documentElement.clientWidth
+
+        // Prefer percentage fields; fall back to raw pixels (old senders).
+        const top  = event.data.scrollTopPct  != null
+          ? event.data.scrollTopPct  * maxY
+          : (event.data.scrollTop  ?? 0)
+        const left = event.data.scrollLeftPct != null
+          ? event.data.scrollLeftPct * maxX
+          : (event.data.scrollLeft ?? 0)
+
+        window.scrollTo({ top, left, behavior: 'instant' })
+
         requestAnimationFrame(() => {
           applyingExternalScroll = false
         })
         break
       }
 
-      // ── Ping / Pong — used by the recorder to detect blocked iframes ──
+      // ── Ping / Pong — iframe liveness detection ────────────────────────
       case 'DS_PING': {
-        // Echo the token back so the recorder can match this specific ping.
-        window.parent.postMessage({
-          type: 'DS_PONG',
-          token: event.data.token,
-          url: location.href,
-        }, '*')
+        window.parent.postMessage(
+          { type: 'DS_PONG', token: event.data.token, url: location.href },
+          '*'
+        )
         break
       }
 
       default:
-        // Ignore unrecognised messages.
         break
     }
   })
 
-  // ── Navigation sync ───────────────────────────────────────────────────────
-  // Detect client-side navigation (SPA pushState / replaceState / hashchange)
-  // and report the new URL to the parent recorder window.
+  // ── Anchor click interception ──────────────────────────────────────────────
+  // Fires in capture phase BEFORE the browser follows the link.
+  // Posts DS_ANCHOR_CLICK so the opposite iframe can pre-navigate.
+  // We never call preventDefault — normal navigation still proceeds.
+
+  document.addEventListener(
+    'click',
+    (e) => {
+      const anchor = e.target.closest('a[href]')
+      if (!anchor) return
+
+      const href = anchor.getAttribute('href')
+      if (!href || href.startsWith('#') || href.startsWith('javascript:')) return
+
+      try {
+        const resolved = new URL(href, location.href).href
+        window.parent.postMessage({ type: 'DS_ANCHOR_CLICK', url: resolved }, '*')
+      } catch {
+        // Malformed URL — ignore silently.
+      }
+    },
+    true // capture phase
+  )
+
+  // ── Navigation sync ────────────────────────────────────────────────────────
 
   let lastHref = location.href
 
   function reportNavigation() {
     if (location.href !== lastHref) {
       lastHref = location.href
-      window.parent.postMessage(
-        {
-          type: 'DS_NAVIGATE',
-          url: location.href,
-        },
-        '*'
-      )
+      window.parent.postMessage({ type: 'DS_NAVIGATE', url: location.href }, '*')
     }
   }
 
-  // Patch history API — these are not real events so we wrap them.
-  const _pushState = history.pushState.bind(history)
+  const _pushState    = history.pushState.bind(history)
   const _replaceState = history.replaceState.bind(history)
 
   history.pushState = function (...args) {
@@ -119,9 +148,9 @@
     reportNavigation()
   }
 
-  window.addEventListener('popstate', reportNavigation)
+  window.addEventListener('popstate',   reportNavigation)
   window.addEventListener('hashchange', reportNavigation)
 
-  // Also poll as a fallback for edge-case navigations (e.g. meta refresh).
+  // Fallback polling for edge-case navigations (meta refresh, etc.)
   setInterval(reportNavigation, 1500)
 })()

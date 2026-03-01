@@ -2,14 +2,16 @@
  * ControlBar — URL bar, view-mode toggle, device controls, recording controls.
  *
  * Device controls (visible when viewMode !== 'desktop'):
- *   [Device ▾]  [width input px]  [↻ rotate]
+ *   [Device ▾]  [←→ width slider px]  [↻ rotate]  [Preset|Fill|½]
+ *
+ * Mirror toggle (always visible, green when active):
+ *   [⟳ Sync]
  *
  * Recording section:
- *   [01:23]  [● Record / ■ Stop]
+ *   [● 01:23  device  px  SYNCED]  [■ Stop]
  */
 
-import { useRef } from 'react'
-import { DEVICES } from '../devices.js'
+import DeviceSelector from './DeviceSelector.jsx'
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 
@@ -45,18 +47,26 @@ function IconBoth() {
 }
 
 function IconRotate({ landscape }) {
-  // Shows portrait phone when in portrait (click to go landscape), and vice versa.
   return landscape ? (
-    // Landscape phone → click to go portrait
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="2" y="7" width="20" height="10" rx="2"/>
-      <path d="M17 2l3 3-3 3" /><path d="M7 22l-3-3 3-3"/>
+      <path d="M17 2l3 3-3 3"/><path d="M7 22l-3-3 3-3"/>
     </svg>
   ) : (
-    // Portrait phone → click to go landscape
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="7" y="2" width="10" height="20" rx="2"/>
       <path d="M22 17l-3 3-3-3"/><path d="M2 7l3-3 3 3"/>
+    </svg>
+  )
+}
+
+function IconSync() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+      <path d="M21.5 2v6h-6"/>
+      <path d="M2.5 22v-6h6"/>
+      <path d="M2 11.5a10 10 0 0 1 18.8-2.3"/>
+      <path d="M22 12.5a10 10 0 0 1-18.8 2.2"/>
     </svg>
   )
 }
@@ -89,27 +99,21 @@ export default function ControlBar({
   landscape, onLandscapeToggle,
   customWidth, onCustomWidthChange,
   device,
+  mirrorMode, onMirrorModeChange,
+  heightMode, onHeightModeChange,
   isRecording, elapsed, elapsedLabel,
   onStartRecording, onStopRecording,
   recordingStatus, recordingError,
 }) {
-  const widthInputRef = useRef(null)
-
   const handleKeyDown = (e) => { if (e.key === 'Enter') onLoadUrl() }
 
-  // Effective viewport width shown in the input.
+  // Effective viewport width for display
   const displayWidth = customWidth ?? (landscape
     ? (device.shell.outerHeight - device.shell.borderWidth * 2)
     : device.viewportWidth)
 
-  const handleWidthChange = (e) => {
-    const val = parseInt(e.target.value, 10)
-    if (!isNaN(val) && val >= 240 && val <= 2560) {
-      onCustomWidthChange(val)
-    } else if (e.target.value === '') {
-      onCustomWidthChange(null) // revert to device default
-    }
-  }
+  // Clamp slider to its range
+  const sliderValue = Math.min(500, Math.max(300, displayWidth))
 
   const showDeviceControls = viewMode !== 'desktop'
 
@@ -176,38 +180,44 @@ export default function ControlBar({
         </ModeBtn>
       </div>
 
+      {/* ── Mirror / Sync toggle ─────────────────────────────────────── */}
+      <button
+        onClick={() => onMirrorModeChange?.(!mirrorMode)}
+        title={mirrorMode ? 'Scroll sync ON — click to disable' : 'Scroll sync OFF — click to enable'}
+        className={[
+          'flex items-center gap-1.5 h-7 px-2.5 rounded text-xs font-medium border transition-all duration-150 flex-shrink-0',
+          mirrorMode
+            ? 'bg-green-900/40 border-green-700/60 text-green-400 hover:bg-green-900/60'
+            : 'bg-gray-800 border-gray-700 text-gray-500 hover:text-gray-300 hover:bg-gray-700',
+        ].join(' ')}
+      >
+        <IconSync />
+        Sync
+      </button>
+
       {/* ── Device controls ──────────────────────────────────────────── */}
       {showDeviceControls && (
         <>
           <div className="w-px h-4 bg-gray-700 flex-shrink-0" aria-hidden="true"/>
 
-          {/* Device preset selector */}
-          <select
-            value={deviceId}
-            onChange={(e) => onDeviceChange(e.target.value)}
-            className="h-7 px-2 bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded-md focus:outline-none focus:border-blue-500 cursor-pointer flex-shrink-0"
-            aria-label="Emulator device"
-          >
-            {DEVICES.map((d) => (
-              <option key={d.id} value={d.id}>{d.label}</option>
-            ))}
-          </select>
+          {/* Searchable device picker */}
+          <DeviceSelector deviceId={deviceId} onDeviceChange={onDeviceChange} />
 
-          {/* Viewport width input */}
-          <div className="flex items-center gap-1 flex-shrink-0">
+          {/* Width range slider */}
+          <div className="flex items-center gap-1.5 flex-shrink-0">
             <input
-              ref={widthInputRef}
-              type="number"
-              value={displayWidth}
-              min={240}
-              max={2560}
-              onChange={handleWidthChange}
-              onFocus={(e) => e.target.select()}
-              className="w-14 h-7 px-1.5 bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded-md text-center focus:outline-none focus:border-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              type="range"
+              min={300}
+              max={500}
+              value={sliderValue}
+              onChange={(e) => onCustomWidthChange(parseInt(e.target.value, 10))}
+              className="w-20 accent-blue-500 cursor-pointer"
               aria-label="Viewport width"
-              title="Viewport width (px) — type to override"
+              title="Viewport width — drag to resize"
             />
-            <span className="text-gray-600 text-xs flex-shrink-0">px</span>
+            <span className="text-gray-400 text-xs tabular-nums w-9 text-right flex-shrink-0">
+              {displayWidth}px
+            </span>
           </div>
 
           {/* Landscape / portrait toggle */}
@@ -223,6 +233,33 @@ export default function ControlBar({
           >
             <IconRotate landscape={landscape} />
           </button>
+
+          {/* Height mode 3-way toggle */}
+          <div
+            className="flex items-center bg-gray-800 border border-gray-700 rounded-md p-0.5 gap-0.5 flex-shrink-0"
+            role="group"
+            aria-label="Height mode"
+          >
+            {[
+              { value: 'preset', label: 'Preset', title: 'Device native height' },
+              { value: 'fill',   label: 'Fill',   title: '90% of window height' },
+              { value: 'half',   label: '½',      title: '45% of window height' },
+            ].map(({ value, label, title }) => (
+              <button
+                key={value}
+                onClick={() => onHeightModeChange?.(value)}
+                title={title}
+                className={[
+                  'px-2 py-1 rounded text-xs font-medium transition-all duration-150 select-none',
+                  heightMode === value
+                    ? 'bg-gray-600 text-white shadow-inner'
+                    : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700',
+                ].join(' ')}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </>
       )}
 
@@ -251,10 +288,23 @@ export default function ControlBar({
           </>
         ) : (
           <>
-            {/* Live timer badge */}
+            {/* Live timer badge with device info */}
             <div className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-800 border border-gray-700 rounded-md">
               <span className="w-1.5 h-1.5 rounded-full bg-red-500 recording-dot flex-shrink-0" aria-hidden="true"/>
               <span className="text-white text-xs font-mono tabular-nums">{elapsedLabel}</span>
+              {showDeviceControls && (
+                <>
+                  <span className="text-gray-600 text-xs">·</span>
+                  <span className="text-gray-400 text-xs truncate max-w-[6rem]">{device.label}</span>
+                  <span className="text-gray-600 text-xs">·</span>
+                  <span className="text-gray-500 text-xs tabular-nums">{displayWidth}px</span>
+                </>
+              )}
+              {mirrorMode && viewMode === 'both' && (
+                <span className="px-1 py-0.5 bg-green-900/50 text-green-400 rounded text-[9px] font-semibold tracking-wide leading-none">
+                  SYNCED
+                </span>
+              )}
             </div>
 
             <button

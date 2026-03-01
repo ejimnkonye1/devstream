@@ -5,6 +5,9 @@
  * 'both'    — Desktop iframe fills the entire area; mobile emulator
  *             sits as an absolute overlay in the bottom-right corner.
  * 'mobile'  — Centred mobile emulator, no desktop iframe.
+ *
+ * mirrorMode — when true AND viewMode==='both', scroll sync is active.
+ * heightMode — forwarded to MobileFrame ('preset' | 'fill' | 'half').
  */
 
 import { useRef, useState, useEffect } from 'react'
@@ -49,7 +52,10 @@ function DesktopPane({ iframeRef, activeUrl }) {
 
 // ── Main component ─────────────────────────────────────────────────────────
 
-export default function DualView({ activeUrl, viewMode, device, landscape, customWidth, onNavigate }) {
+export default function DualView({
+  activeUrl, viewMode, device, landscape, customWidth, onNavigate,
+  mirrorMode, heightMode,
+}) {
   const desktopRef = useRef(null)
   const mobileRef  = useRef(null)
 
@@ -57,7 +63,8 @@ export default function DualView({ activeUrl, viewMode, device, landscape, custo
 
   useEffect(() => { setOverlayCollapsed(false) }, [viewMode])
 
-  useScrollSync(desktopRef, mobileRef, onNavigate, viewMode === 'both')
+  // Sync is only active in 'both' mode when mirrorMode is enabled
+  useScrollSync(desktopRef, mobileRef, onNavigate, mirrorMode && viewMode === 'both')
 
   // ── desktop ────────────────────────────────────────────────────────────
   if (viewMode === 'desktop') {
@@ -78,6 +85,7 @@ export default function DualView({ activeUrl, viewMode, device, landscape, custo
           device={device}
           landscape={landscape}
           customWidth={customWidth}
+          heightMode={heightMode}
         />
       </div>
     )
@@ -103,6 +111,12 @@ export default function DualView({ activeUrl, viewMode, device, landscape, custo
               ? `${device.shell.outerHeight - device.shell.borderWidth * 2}px`
               : `${customWidth ?? device.viewportWidth}px`}
           </span>
+          {mirrorMode && (
+            <>
+              <span className="text-xs text-gray-600">·</span>
+              <span className="text-[9px] font-semibold text-green-400 tracking-wide">SYNCED</span>
+            </>
+          )}
 
           <button
             onClick={() => setOverlayCollapsed((v) => !v)}
@@ -132,6 +146,7 @@ export default function DualView({ activeUrl, viewMode, device, landscape, custo
               device={device}
               landscape={landscape}
               customWidth={customWidth}
+              heightMode={heightMode}
               overlay
             />
           </div>

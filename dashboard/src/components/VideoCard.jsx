@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
+import { supabase } from '../lib/supabase.js'
 
 const DASHBOARD_URL = import.meta.env.VITE_DASHBOARD_URL || window.location.origin
 
@@ -22,7 +23,10 @@ function formatDate(iso) {
 }
 
 export default function VideoCard({ recording, onDelete }) {
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied]       = useState(false)
+  const [editing, setEditing]     = useState(false)
+  const [editTitle, setEditTitle] = useState(recording.title ?? '')
+  const videoRef = useRef(null)
   const meta = recording.meta || {}
 
   const shareUrl = recording.share_token
@@ -36,6 +40,40 @@ export default function VideoCard({ recording, onDelete }) {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  // ── Hover preview ─────────────────────────────────────────────────────────
+  function handleMouseEnter() {
+    if (!videoRef.current) return
+    videoRef.current.muted = true
+    videoRef.current.play().catch(() => {})
+  }
+
+  function handleMouseLeave() {
+    if (!videoRef.current) return
+    videoRef.current.pause()
+    videoRef.current.currentTime = 0
+  }
+
+  // ── Inline title editing ──────────────────────────────────────────────────
+  function startEdit() {
+    setEditTitle(recording.title ?? '')
+    setEditing(true)
+  }
+
+  async function commitEdit() {
+    const trimmed = editTitle.trim()
+    if (trimmed && trimmed !== recording.title) {
+      await supabase.from('recordings').update({ title: trimmed }).eq('id', recording.id)
+      // Reflect the change locally without a full refetch
+      recording.title = trimmed
+    }
+    setEditing(false)
+  }
+
+  function handleTitleKeyDown(e) {
+    if (e.key === 'Enter') { e.preventDefault(); commitEdit() }
+    if (e.key === 'Escape') { setEditing(false); setEditTitle(recording.title ?? '') }
+  }
+
   const duration  = formatDuration(recording.duration)
   const fileSize  = formatBytes(recording.file_size)
   const dateLabel = formatDate(recording.created_at)
@@ -43,9 +81,14 @@ export default function VideoCard({ recording, onDelete }) {
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden flex flex-col">
       {/* Video thumbnail / player */}
-      <div className="aspect-video bg-gray-950 flex items-center justify-center">
+      <div
+        className="aspect-video bg-gray-950 flex items-center justify-center"
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+      >
         {recording.signed_url ? (
           <video
+            ref={videoRef}
             src={recording.signed_url}
             className="w-full h-full object-contain"
             controls
@@ -65,7 +108,26 @@ export default function VideoCard({ recording, onDelete }) {
       {/* Details */}
       <div className="p-4 flex flex-col gap-3 flex-1">
         <div>
-          <p className="text-white text-sm font-medium leading-snug line-clamp-2">{recording.title}</p>
+          {/* Title — click to edit */}
+          {editing ? (
+            <input
+              autoFocus
+              type="text"
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              onBlur={commitEdit}
+              onKeyDown={handleTitleKeyDown}
+              className="w-full bg-transparent border border-blue-500 rounded px-1.5 py-0.5 text-white text-sm font-medium focus:outline-none"
+            />
+          ) : (
+            <p
+              className="text-white text-sm font-medium leading-snug line-clamp-2 cursor-pointer hover:text-blue-300 transition-colors"
+              title="Click to rename"
+              onClick={startEdit}
+            >
+              {recording.title}
+            </p>
+          )}
 
           <div className="flex items-center gap-1.5 mt-1 text-gray-500 text-xs flex-wrap">
             <span>{dateLabel}</span>
