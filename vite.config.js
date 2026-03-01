@@ -11,6 +11,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         recorder: resolve(__dirname, 'recorder.html'),
+        auth:     resolve(__dirname, 'auth.html'),
       },
       output: {
         // Deterministic filenames — no content hashes

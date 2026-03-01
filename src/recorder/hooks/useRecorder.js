@@ -1,9 +1,15 @@
 /**
  * useRecorder — MediaRecorder hook
  *
- * Returns: { isRecording, elapsed, elapsedLabel, status, error, startRecording, stopRecording }
- *   elapsed      — integer seconds since recording started
- *   elapsedLabel — formatted "MM:SS" string for display
+ * Phase 2 change: onstop no longer auto-downloads.
+ * Instead it populates `pendingRecording` so the caller can show
+ * the SaveDialog (download locally OR upload to cloud).
+ *
+ * Returns:
+ *   isRecording, elapsed, elapsedLabel, status, error
+ *   pendingRecording  — { blob, mimeType, duration } | null
+ *   startRecording, stopRecording
+ *   clearPending      — call after SaveDialog is dismissed
  */
 
 import { useState, useRef, useCallback } from 'react'
@@ -29,21 +35,20 @@ function formatTime(seconds) {
 }
 
 export default function useRecorder() {
-  const [isRecording, setIsRecording]   = useState(false)
-  const [elapsed, setElapsed]           = useState(0)
-  const [status, setStatus]             = useState('')
-  const [error, setError]               = useState(null)
+  const [isRecording, setIsRecording]       = useState(false)
+  const [elapsed, setElapsed]               = useState(0)
+  const [status, setStatus]                 = useState('')
+  const [error, setError]                   = useState(null)
+  const [pendingRecording, setPendingRecording] = useState(null)
 
   const mediaRecorderRef = useRef(null)
   const chunksRef        = useRef([])
   const streamRef        = useRef(null)
   const timerRef         = useRef(null)
+  const elapsedRef       = useRef(0)   // readable in onstop callback
 
   function clearTimer() {
-    if (timerRef.current) {
-      clearInterval(timerRef.current)
-      timerRef.current = null
-    }
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
   }
 
   // ── Start ────────────────────────────────────────────────────────────────
@@ -66,12 +71,8 @@ export default function useRecorder() {
         preferCurrentTab: false,
       })
     } catch (err) {
-      if (err.name === 'NotAllowedError') {
-        setStatus('')
-      } else {
-        setError(`Could not start capture: ${err.message}`)
-        setStatus('')
-      }
+      setStatus('')
+      if (err.name !== 'NotAllowedError') setError(`Could not start capture: ${err.message}`)
       return
     }
 
@@ -100,17 +101,13 @@ export default function useRecorder() {
       clearTimer()
       const effectiveMime = recorder.mimeType || mimeType || 'video/webm'
       const blob = new Blob(chunksRef.current, { type: effectiveMime })
-      const ext  = effectiveMime.includes('mp4') ? 'mp4' : 'webm'
 
-      const url    = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href     = url
-      anchor.download = `devstream-${Date.now()}.${ext}`
-      anchor.click()
-      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+      // Hand off to SaveDialog — do NOT auto-download.
+      setPendingRecording({ blob, mimeType: effectiveMime, duration: elapsedRef.current })
 
       setIsRecording(false)
       setElapsed(0)
+      elapsedRef.current = 0
       setStatus('')
     }
 
@@ -119,20 +116,21 @@ export default function useRecorder() {
       stopRecording()
     }
 
-    // User clicked "Stop sharing" in the browser toolbar.
     stream.getVideoTracks()[0].addEventListener('ended', () => {
       if (recorder.state !== 'inactive') recorder.stop()
       clearTimer()
       setIsRecording(false)
       setElapsed(0)
+      elapsedRef.current = 0
       setStatus('')
     })
 
     recorder.start(1000)
 
-    // Start elapsed timer.
     setElapsed(0)
+    elapsedRef.current = 0
     timerRef.current = setInterval(() => {
+      elapsedRef.current += 1
       setElapsed((s) => s + 1)
     }, 1000)
 
@@ -150,8 +148,10 @@ export default function useRecorder() {
       streamRef.current.getTracks().forEach((t) => t.stop())
       streamRef.current = null
     }
-    setStatus('Saving file…')
+    setStatus('Processing…')
   }, [])
+
+  const clearPending = useCallback(() => setPendingRecording(null), [])
 
   return {
     isRecording,
@@ -159,7 +159,9 @@ export default function useRecorder() {
     elapsedLabel: formatTime(elapsed),
     status,
     error,
+    pendingRecording,
     startRecording,
     stopRecording,
+    clearPending,
   }
 }

@@ -1,18 +1,7 @@
-/**
- * App — Root component for the DevStream recorder page.
- *
- * State owned here:
- *   url          — raw text in the URL bar
- *   activeUrl    — URL currently loaded in iframes
- *   viewMode     — 'desktop' | 'both' | 'mobile'
- *   deviceId     — active emulator device id
- *   landscape    — portrait (false) / landscape (true) for the emulator
- *   customWidth  — override viewport px width, or null to use device default
- */
-
 import { useState, useCallback } from 'react'
 import ControlBar from './components/ControlBar.jsx'
 import DualView from './components/DualView.jsx'
+import SaveDialog from './components/SaveDialog.jsx'
 import useRecorder from './hooks/useRecorder.js'
 import { DEFAULT_DEVICE_ID, findDevice } from './devices.js'
 
@@ -29,9 +18,12 @@ export default function App() {
   const [viewMode, setViewMode]     = useState('both')
   const [deviceId, setDeviceId]     = useState(DEFAULT_DEVICE_ID)
   const [landscape, setLandscape]   = useState(false)
-  const [customWidth, setCustomWidth] = useState(null) // null = use device default
+  const [customWidth, setCustomWidth] = useState(null)
 
-  const { isRecording, elapsed, elapsedLabel, status, error, startRecording, stopRecording } = useRecorder()
+  const {
+    isRecording, elapsed, elapsedLabel, status, error,
+    pendingRecording, startRecording, stopRecording, clearPending,
+  } = useRecorder()
 
   const handleLoadUrl = useCallback(() => {
     const resolved = normaliseUrl(url)
@@ -45,43 +37,37 @@ export default function App() {
     setActiveUrl(newUrl)
   }, [])
 
-  // Changing device resets custom width and orientation.
   const handleDeviceChange = useCallback((id) => {
-    setDeviceId(id)
-    setCustomWidth(null)
-    setLandscape(false)
+    setDeviceId(id); setCustomWidth(null); setLandscape(false)
   }, [])
 
-  // Changing orientation resets custom width (it was set for the other axis).
   const handleLandscapeToggle = useCallback(() => {
-    setLandscape((v) => !v)
-    setCustomWidth(null)
+    setLandscape((v) => !v); setCustomWidth(null)
   }, [])
 
   const device = findDevice(deviceId)
 
+  // Metadata attached to every cloud upload
+  const recordingMeta = {
+    recordedUrl:   activeUrl,
+    device:        device.label,
+    viewMode,
+    viewportWidth: customWidth ?? device.viewportWidth,
+    landscape,
+  }
+
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white overflow-hidden">
       <ControlBar
-        url={url}
-        onUrlChange={setUrl}
-        onLoadUrl={handleLoadUrl}
-        viewMode={viewMode}
-        onViewModeChange={setViewMode}
-        deviceId={deviceId}
-        onDeviceChange={handleDeviceChange}
-        landscape={landscape}
-        onLandscapeToggle={handleLandscapeToggle}
-        customWidth={customWidth}
-        onCustomWidthChange={setCustomWidth}
+        url={url} onUrlChange={setUrl} onLoadUrl={handleLoadUrl}
+        viewMode={viewMode} onViewModeChange={setViewMode}
+        deviceId={deviceId} onDeviceChange={handleDeviceChange}
+        landscape={landscape} onLandscapeToggle={handleLandscapeToggle}
+        customWidth={customWidth} onCustomWidthChange={setCustomWidth}
         device={device}
-        isRecording={isRecording}
-        elapsed={elapsed}
-        elapsedLabel={elapsedLabel}
-        onStartRecording={startRecording}
-        onStopRecording={stopRecording}
-        recordingStatus={status}
-        recordingError={error}
+        isRecording={isRecording} elapsed={elapsed} elapsedLabel={elapsedLabel}
+        onStartRecording={startRecording} onStopRecording={stopRecording}
+        recordingStatus={status} recordingError={error}
       />
 
       {isRecording && (
@@ -93,14 +79,22 @@ export default function App() {
 
       <main className="flex-1 overflow-hidden">
         <DualView
-          activeUrl={activeUrl}
-          viewMode={viewMode}
-          device={device}
-          landscape={landscape}
-          customWidth={customWidth}
+          activeUrl={activeUrl} viewMode={viewMode}
+          device={device} landscape={landscape} customWidth={customWidth}
           onNavigate={handleNavigate}
         />
       </main>
+
+      {/* Post-recording save dialog */}
+      {pendingRecording && (
+        <SaveDialog
+          blob={pendingRecording.blob}
+          mimeType={pendingRecording.mimeType}
+          duration={pendingRecording.duration}
+          meta={recordingMeta}
+          onClose={clearPending}
+        />
+      )}
     </div>
   )
 }

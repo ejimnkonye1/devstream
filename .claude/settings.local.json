@@ -3,7 +3,8 @@
     "allow": [
       "Bash(npm install)",
       "Bash(node scripts/generate-icons.mjs:*)",
-      "Bash(npm run build:ext:*)"
+      "Bash(npm run build:ext:*)",
+      "Bash(npm run build:*)"
     ]
   }
 }

@@ -35,12 +35,20 @@
 
   "permissions": [
     "tabs",
-    "windows"
+    "windows",
+    "storage"
   ],
+
+  "externally_connectable": {
+    "matches": [
+      "http://localhost:5174/*",
+      "https://localhost:5174/*"
+    ]
+  },
 
   "web_accessible_resources": [
     {
-      "resources": ["recorder.html", "assets/*"],
+      "resources": ["recorder.html", "auth.html", "assets/*"],
       "matches": ["<all_urls>"]
     }
   ],

@@ -39,6 +39,21 @@ export default function AuthApp() {
     return () => subscription.unsubscribe()
   }, [])
 
+  // Receive SET_SESSION relayed by background.js from the web dashboard.
+  useEffect(() => {
+    async function onMessage(message) {
+      if (message.type === 'SET_SESSION' && message.accessToken) {
+        await supabase.auth.setSession({
+          access_token:  message.accessToken,
+          refresh_token: message.refreshToken,
+        })
+        // onAuthStateChange fires SIGNED_IN → window.close()
+      }
+    }
+    chrome.runtime.onMessage.addListener(onMessage)
+    return () => chrome.runtime.onMessage.removeListener(onMessage)
+  }, [])
+
   async function handleSubmit(e) {
     e.preventDefault()
     setError(null)

@@ -3,8 +3,8 @@
  *
  * Responsibilities:
  *  1. Open the recorder window when the extension icon is clicked.
- *  2. Relay messages between the recorder page and any content scripts
- *     (future-proofing for Phase 2 features like proxy navigation).
+ *  2. Open a sign-in popup when the recorder requests it.
+ *  3. Relay the Supabase session from the web dashboard to the auth window.
  *
  * NOTE: Service workers are stateless between events — do NOT store
  * mutable state here. Use chrome.storage if persistence is needed.
@@ -12,62 +12,89 @@
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const RECORDER_WINDOW = {
-  width: 1400,
-  height: 900,
-  type: 'popup',
-}
+const RECORDER_WINDOW = { width: 1400, height: 900,  type: 'popup' }
+const AUTH_WINDOW     = { width: 400,  height: 560,  type: 'popup' }
 
-// Track the recorder window ID so we don't open duplicates.
+// Track window IDs to avoid duplicates.
 let recorderWindowId = null
+let authWindowId     = null
 
 // ─── Action click: open recorder window ───────────────────────────────────────
 
 chrome.action.onClicked.addListener(async () => {
-  // If a recorder window is already open, focus it instead of creating another.
   if (recorderWindowId !== null) {
     try {
       await chrome.windows.update(recorderWindowId, { focused: true })
       return
     } catch {
-      // Window was closed externally — fall through to create a new one.
       recorderWindowId = null
     }
   }
 
   const win = await chrome.windows.create({
     url: chrome.runtime.getURL('recorder.html'),
-    type: RECORDER_WINDOW.type,
-    width: RECORDER_WINDOW.width,
-    height: RECORDER_WINDOW.height,
+    ...RECORDER_WINDOW,
     focused: true,
   })
-
   recorderWindowId = win.id
 })
 
-// ─── Clean up when the recorder window is closed ──────────────────────────────
+// ─── Clean up when windows are closed ─────────────────────────────────────────
 
 chrome.windows.onRemoved.addListener((windowId) => {
-  if (windowId === recorderWindowId) {
-    recorderWindowId = null
-  }
+  if (windowId === recorderWindowId) recorderWindowId = null
+  if (windowId === authWindowId)     authWindowId     = null
 })
 
-// ─── Message relay ────────────────────────────────────────────────────────────
-// The recorder page can send messages to the background worker for actions
-// that require chrome.* APIs unavailable in regular extension pages.
+// ─── Internal messages (from extension pages / content scripts) ───────────────
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   switch (message.type) {
+
     case 'PING':
       sendResponse({ type: 'PONG', version: chrome.runtime.getManifest().version })
-      break
+      return false
+
+    case 'OPEN_AUTH_WINDOW':
+      openAuthWindow()
+      return false
 
     default:
-      // Unknown message — ignore silently.
-      break
+      return false
   }
-  // Return true only when sendResponse will be called asynchronously.
-  return false
 })
+
+// ─── External messages (from the web dashboard at localhost:5174) ─────────────
+// chrome.runtime.onMessage does NOT receive messages sent by web pages —
+// those arrive on onMessageExternal instead.
+
+chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
+  if (message.type === 'SYNC_SESSION') {
+    const { accessToken, refreshToken } = message
+    // Broadcast to all open extension pages so they can call setSession()
+    chrome.runtime.sendMessage({ type: 'SET_SESSION', accessToken, refreshToken })
+      .catch(() => {}) // ignore if no extension page is currently open
+    sendResponse({ ok: true })
+    return true
+  }
+})
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+async function openAuthWindow() {
+  if (authWindowId !== null) {
+    try {
+      await chrome.windows.update(authWindowId, { focused: true })
+      return
+    } catch {
+      authWindowId = null
+    }
+  }
+
+  const win = await chrome.windows.create({
+    url: chrome.runtime.getURL('auth.html'),
+    ...AUTH_WINDOW,
+    focused: true,
+  })
+  authWindowId = win.id
+}
